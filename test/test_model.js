@@ -185,9 +185,9 @@ run("power saver and the warning fire together when their levels match", () => {
 
 run("charge status parses all three kinds", () => {
   assert.deepStrictEqual(M.parseChargeStatus("kind\tthreshold\nvalue\t80\nwritable\t1\n"),
-    { kind: "threshold", value: "80", writable: true, error: "" })
+    { kind: "threshold", value: "80", writable: true, customMode: false, chargeType: "", restoreType: "", error: "" })
   assert.deepStrictEqual(M.parseChargeStatus("kind\ttypes\nvalue\tStandard\nwritable\t0\n"),
-    { kind: "types", value: "Standard", writable: false, error: "" })
+    { kind: "types", value: "Standard", writable: false, customMode: false, chargeType: "", restoreType: "", error: "" })
   assert.strictEqual(M.parseChargeStatus("").kind, "none")
   assert.strictEqual(M.parseChargeStatus("kind\tbogus\n").kind, "none")
 })
@@ -197,6 +197,15 @@ run("charge limit target: threshold laptops get the number, or 100 when off", ()
   assert.strictEqual(M.chargeLimitTarget(status, cfg({ chargeLimitOn: true, chargeLimit: 80 })), "80")
   assert.strictEqual(M.chargeLimitTarget({ kind: "threshold", value: "80" }, cfg({ chargeLimitOn: true })), "")
   assert.strictEqual(M.chargeLimitTarget({ kind: "threshold", value: "80" }, cfg()), "100")
+})
+
+run("charge limit target: Dell thresholds also manage Custom mode", () => {
+  const adaptive = { kind: "threshold", value: "80", customMode: true, chargeType: "Adaptive", restoreType: "" }
+  const custom = { kind: "threshold", value: "80", customMode: true, chargeType: "Custom", restoreType: "Adaptive" }
+  assert.strictEqual(M.chargeLimitTarget(adaptive, cfg({ chargeLimitOn: true })), "80")
+  assert.strictEqual(M.chargeLimitTarget(custom, cfg({ chargeLimitOn: true })), "")
+  assert.strictEqual(M.chargeLimitTarget(custom, cfg()), "100")
+  assert.strictEqual(M.chargeLimitTarget({ kind: "threshold", value: "100", customMode: true, chargeType: "Adaptive" }, cfg()), "")
 })
 
 run("charge limit target: conservation laptops toggle Long_Life", () => {

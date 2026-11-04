@@ -17,7 +17,7 @@ check() {
   fi
 }
 
-run() { SUPER_BATTERY_SYSFS="$1" "$script" "${@:2}" 2>&1; }
+run() { SUPER_BATTERY_SYSFS="$1" SUPER_BATTERY_STATE="$1/charge-type" "$script" "${@:2}" 2>&1; }
 
 # A Legion-style laptop: conservation mode only, plus a mouse battery and AC.
 legion=$(mktemp -d)
@@ -53,6 +53,26 @@ check "threshold laptop: set 80" "80" "$(<"$thinkpad/BAT0/charge_control_end_thr
 check "threshold laptop: out of range is refused" "charge-limit: limit must be 50-100, got '20'" "$(run "$thinkpad" set 20)"
 check "threshold laptop: junk is refused" "charge-limit: limit must be 50-100, got '8;0'" "$(run "$thinkpad" set '8;0')"
 rm -rf "$thinkpad"
+
+# Dell numeric thresholds only take effect in Custom mode. Remember Adaptive
+# while the limit is on and put it back when the limit is switched off.
+dell=$(mktemp -d)
+mkdir -p "$dell/BAT0"
+echo Battery >"$dell/BAT0/type"
+echo 80 >"$dell/BAT0/charge_control_end_threshold"
+echo "Trickle Fast Standard [Adaptive] Custom" >"$dell/BAT0/charge_types"
+
+check "Dell: status includes the active charge type" $'kind\tthreshold\nvalue\t80\nwritable\t1\ncustom_mode\t1\ncharge_type\tAdaptive\nbattery\tBAT0' "$(run "$dell" status)"
+run "$dell" set 80 >/dev/null
+check "Dell: enabling the limit selects Custom" "Custom" "$(<"$dell/BAT0/charge_types")"
+check "Dell: the previous mode is remembered" "Adaptive" "$(<"$dell/charge-type")"
+echo "Trickle Fast Standard Adaptive [Custom]" >"$dell/BAT0/charge_types"
+check "Dell: status exposes the mode to restore" "Adaptive" "$(run "$dell" status | awk -F'\t' '$1=="restore_type"{print $2}')"
+run "$dell" set 100 >/dev/null
+check "Dell: disabling the limit sets 100" "100" "$(<"$dell/BAT0/charge_control_end_threshold")"
+check "Dell: disabling the limit restores Adaptive" "Adaptive" "$(<"$dell/BAT0/charge_types")"
+check "Dell: the remembered mode is cleared" "0" "$([[ -e $dell/charge-type ]] && echo 1 || echo 0)"
+rm -rf "$dell"
 
 # charge_types without Long_Life, and no battery at all.
 other=$(mktemp -d)

@@ -214,7 +214,7 @@ function step(state, input) {
 //   value     the current end threshold, or the current charge type
 //   writable  1 when this user can write it without a password
 function parseChargeStatus(raw) {
-  var out = { kind: "none", value: "", writable: false, error: "" }
+  var out = { kind: "none", value: "", writable: false, customMode: false, chargeType: "", restoreType: "", error: "" }
   var lines = String(raw || "").split("\n")
   for (var i = 0; i < lines.length; i++) {
     var tab = lines[i].indexOf("\t")
@@ -224,6 +224,9 @@ function parseChargeStatus(raw) {
     if (key === "kind") out.kind = value === "threshold" || value === "types" ? value : "none"
     else if (key === "value") out.value = value
     else if (key === "writable") out.writable = value === "1"
+    else if (key === "custom_mode") out.customMode = value === "1"
+    else if (key === "charge_type") out.chargeType = value
+    else if (key === "restore_type") out.restoreType = value
     else if (key === "error") out.error = value
   }
   return out
@@ -240,7 +243,13 @@ function chargeLimitValue(status, settings) {
 // What the charge limit should be written as, or "" when it already is.
 function chargeLimitTarget(status, settings) {
   var want = chargeLimitValue(status, settings)
-  return want && status.value !== want ? want : ""
+  if (!want) return ""
+  if (status.value !== want) return want
+  if (status.kind === "threshold" && status.customMode) {
+    if (settings.chargeLimitOn && status.chargeType !== "Custom") return want
+    if (!settings.chargeLimitOn && status.chargeType === "Custom" && status.restoreType) return want
+  }
+  return ""
 }
 
 function chargeLimitActive(status) {

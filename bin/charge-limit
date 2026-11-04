@@ -11,10 +11,14 @@
 # Long_Life, with the cap chosen by the firmware. The number is preferred
 # when a laptop has both.
 #
-# SUPER_BATTERY_SYSFS points it at a fake power_supply tree for tests.
+# Dell only applies numeric thresholds in its Custom charge type. The previous
+# type is remembered so switching the limit off can restore Adaptive or Standard.
+#
+# SUPER_BATTERY_SYSFS and SUPER_BATTERY_STATE point at fake paths for tests.
 set -euo pipefail
 
 root="${SUPER_BATTERY_SYSFS:-/sys/class/power_supply}"
+state_file="${SUPER_BATTERY_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/super-battery/charge-type}"
 
 fail() {
   echo "charge-limit: $*" >&2
@@ -35,18 +39,31 @@ find_battery() {
   return 1
 }
 
-charge_types_offer_long_life() {
-  [[ -r $1/charge_types ]] && [[ " $(tr -d '[]' <"$1/charge_types") " == *" Long_Life "* ]]
+charge_types_offer() {
+  [[ -r $2/charge_types ]] && [[ " $(tr -d '[]' <"$2/charge_types") " == *" $1 "* ]]
 }
 
-# charge_types reads like "Fast [Standard] Long_Life"; the bracketed one is
-# current.
+charge_types_offer_long_life() {
+  charge_types_offer Long_Life "$1"
+}
+
+charge_types_offer_custom() {
+  charge_types_offer Custom "$1"
+}
+
+# Real sysfs marks the current type in brackets. Fake files hold only the new
+# type after a write, so accept that form too.
 current_charge_type() {
-  grep -o '\[[^]]*\]' "$1/charge_types" | tr -d '[]'
+  local types=$(<"$1/charge_types")
+  if [[ $types == *\[*\]* ]]; then
+    printf '%s\n' "$types" | grep -o '\[[^]]*\]' | tr -d '[]'
+  else
+    printf '%s\n' "$types"
+  fi
 }
 
 status() {
-  local battery
+  local battery charge_type previous
   if ! battery=$(find_battery); then
     printf 'kind\tnone\n'
     return 0
@@ -55,6 +72,16 @@ status() {
   if [[ -e $battery/charge_control_end_threshold ]]; then
     printf 'kind\tthreshold\nvalue\t%s\n' "$(<"$battery/charge_control_end_threshold")"
     [[ -w $battery/charge_control_end_threshold ]] && printf 'writable\t1\n' || printf 'writable\t0\n'
+    if charge_types_offer_custom "$battery"; then
+      charge_type=$(current_charge_type "$battery")
+      printf 'custom_mode\t1\ncharge_type\t%s\n' "$charge_type"
+      if [[ $charge_type == Custom && -r $state_file ]]; then
+        previous=$(<"$state_file")
+        if charge_types_offer "$previous" "$battery"; then
+          printf 'restore_type\t%s\n' "$previous"
+        fi
+      fi
+    fi
   else
     printf 'kind\ttypes\nvalue\t%s\n' "$(current_charge_type "$battery")"
     [[ -w $battery/charge_types ]] && printf 'writable\t1\n' || printf 'writable\t0\n'
@@ -63,13 +90,31 @@ status() {
 }
 
 set_limit() {
-  local value="$1" battery
+  local value="$1" battery charge_type previous=""
   battery=$(find_battery) || fail "this laptop has no charge limit control"
 
   if [[ -e $battery/charge_control_end_threshold ]]; then
     [[ $value =~ ^[0-9]+$ ]] && (( value >= 50 && value <= 100 )) || fail "limit must be 50-100, got '$value'"
     [[ -w $battery/charge_control_end_threshold ]] || fail "not writable yet: run the one-time setup"
+    if charge_types_offer_custom "$battery"; then
+      [[ -w $battery/charge_types ]] || fail "not writable yet: run the one-time setup"
+      charge_type=$(current_charge_type "$battery")
+      [[ -r $state_file ]] && previous=$(<"$state_file")
+      if (( value < 100 )) && [[ $charge_type != Custom ]]; then
+        previous=$charge_type
+        mkdir -p "$(dirname "$state_file")"
+        printf '%s\n' "$previous" >"$state_file"
+      fi
+    fi
     printf '%s\n' "$value" >"$battery/charge_control_end_threshold"
+    if charge_types_offer_custom "$battery"; then
+      if (( value < 100 )); then
+        [[ $charge_type == Custom ]] || printf 'Custom\n' >"$battery/charge_types"
+      elif [[ $charge_type == Custom && -n $previous ]] && charge_types_offer "$previous" "$battery"; then
+        printf '%s\n' "$previous" >"$battery/charge_types"
+        rm -f "$state_file"
+      fi
+    fi
   else
     [[ $value == Long_Life || $value == Standard ]] || fail "mode must be Long_Life or Standard, got '$value'"
     [[ -w $battery/charge_types ]] || fail "not writable yet: run the one-time setup"

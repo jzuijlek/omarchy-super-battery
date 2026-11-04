@@ -19,10 +19,10 @@ Item {
 
   readonly property string pluginId: (manifest && manifest.id) || "paulbob.super-battery"
   readonly property string home: Quickshell.env("HOME")
-  // Both settable so the test harness can point them at scratch files.
+  // Settable so the test harness can point them at scratch files.
   property string shellConfigPath: home + "/.config/omarchy/shell.json"
   property string customSoundDir: home + "/.local/share/sounds/super-battery"
-  readonly property string chargeLimitBin: localPath("bin/charge-limit")
+  property string chargeLimitBin: localPath("bin/charge-limit")
   readonly property string chargeSetupBin: localPath("bin/charge-limit-setup")
   readonly property string addSoundBin: localPath("bin/add-sound")
 
@@ -31,6 +31,7 @@ Item {
   property var sounds: []
   property var chargeStatus: Model.parseChargeStatus("")
   property bool chargeSetupRunning: false
+  property string pendingChargeTarget: ""
   property string lastError: ""
 
   readonly property int level: Model.batteryLevel(UPower.displayDevice)
@@ -181,8 +182,13 @@ Item {
   }
 
   function applyChargeLimit() {
+    if (!root.chargeStatus.writable) return
+    if (chargeSetProc.running) {
+      root.pendingChargeTarget = Model.chargeLimitValue(root.chargeStatus, root.settings)
+      return
+    }
     var target = Model.chargeLimitTarget(root.chargeStatus, root.settings)
-    if (!target || !root.chargeStatus.writable || chargeSetProc.running) return
+    if (!target) return
     chargeSetProc.command = [root.chargeLimitBin, "set", target]
     chargeSetProc.running = true
   }
@@ -256,7 +262,14 @@ Item {
     stderr: StdioCollector { id: chargeErr; waitForEnd: true }
     onExited: function(exitCode) {
       if (exitCode !== 0) root.lastError = String(chargeErr.text || "").trim() || "Could not change the charge limit"
-      root.refreshCharge()
+      var pending = root.pendingChargeTarget
+      root.pendingChargeTarget = ""
+      if (pending) {
+        chargeSetProc.command = [root.chargeLimitBin, "set", pending]
+        chargeSetProc.running = true
+      } else {
+        root.refreshCharge()
+      }
     }
   }
 

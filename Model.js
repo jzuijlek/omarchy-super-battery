@@ -229,19 +229,18 @@ function parseChargeStatus(raw) {
   return out
 }
 
-// What the charge limit should be written as, or "" when it already is.
 // Conservation-style laptops have no number to set: on is the firmware's
 // Long_Life mode, which picks its own cap.
-function chargeLimitTarget(status, settings) {
-  if (status.kind === "threshold") {
-    var want = settings.chargeLimitOn ? String(settings.chargeLimit) : "100"
-    return status.value === want ? "" : want
-  }
-  if (status.kind === "types") {
-    var type = settings.chargeLimitOn ? "Long_Life" : "Standard"
-    return status.value === type ? "" : type
-  }
+function chargeLimitValue(status, settings) {
+  if (status.kind === "threshold") return settings.chargeLimitOn ? String(settings.chargeLimit) : "100"
+  if (status.kind === "types") return settings.chargeLimitOn ? "Long_Life" : "Standard"
   return ""
+}
+
+// What the charge limit should be written as, or "" when it already is.
+function chargeLimitTarget(status, settings) {
+  var want = chargeLimitValue(status, settings)
+  return want && status.value !== want ? want : ""
 }
 
 function chargeLimitActive(status) {

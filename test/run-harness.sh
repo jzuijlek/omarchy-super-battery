@@ -22,4 +22,22 @@ SH
 chmod +x "$work/fake-file-select"
 export SUPER_BATTERY_FILE_SELECT="$work/fake-file-select"
 
+# Slow enough that the harness can choose several limits during one write.
+cat >"$work/slow-charge-limit" <<'SH'
+#!/bin/bash
+state="$(dirname "$0")/charge-state"
+case "$1" in
+  status)
+    printf 'kind\tthreshold\nvalue\t%s\nwritable\t1\nbattery\tFAKE\n' "$(<"$state")"
+    ;;
+  set)
+    echo "$2" >>"$(dirname "$0")/charge-writes"
+    sleep 0.25
+    echo "$2" >"$state"
+    ;;
+esac
+SH
+chmod +x "$work/slow-charge-limit"
+echo 100 >"$work/charge-state"
+
 timeout 25 quickshell -p "$work" 2>&1 | grep -E 'PASS|FAIL|ERROR|Warning:'

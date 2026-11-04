@@ -1,7 +1,6 @@
-// Headless check of Service.qml against the real UPower, pw-play, and
-// charge limit files, with a fake shell.json and a stand-in for the shell's
-// plugin API. No window opens and nothing outside the scratch copy is
-// written: the charge limit is only read, never set.
+// Headless check of Service.qml against real UPower and pw-play, with a fake
+// charge limit command, shell.json, and stand-in for the shell's plugin API.
+// No window opens and nothing outside the scratch copy is written.
 //   test/run-harness.sh
 // Plays the warning sound once, quietly, then adds a sound through a fake
 // file chooser and stops it right away. Prints PASS/FAIL lines and exits.
@@ -36,6 +35,7 @@ ShellRoot {
     manifest: ({ id: "paulbob.super-battery" })
     shellConfigPath: harness.scratch("shell.json")
     customSoundDir: harness.scratch("sounds")
+    chargeLimitBin: harness.scratch("slow-charge-limit")
     onPlayingChanged: if (playing) harness.sawPlaying = true
     onAddSoundFinished: function(stage) { harness.addedFor = stage; added.start() }
   }
@@ -71,6 +71,9 @@ ShellRoot {
         service.setSetting("chargeLimitOn", false)
       }
 
+      service.setSetting("chargeLimitOn", true)
+      service.setSetting("chargeLimit", 85)
+      service.setSetting("chargeLimit", 90)
       service.testSound("warning")
       done.start()
     }
@@ -80,6 +83,9 @@ ShellRoot {
     id: done
     interval: 4000
     onTriggered: {
+      harness.expect("latest charge limit wins while a write is running",
+        service.settings.chargeLimit === 90 && service.chargeStatus.value === "90",
+        "saved " + service.settings.chargeLimit + ", actual " + service.chargeStatus.value)
       harness.expect("pw-play ran", harness.sawPlaying)
       harness.expect("sound finished without error", !service.playing && service.lastError === "", service.lastError)
       harness.sawPlaying = false

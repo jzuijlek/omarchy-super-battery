@@ -787,6 +787,16 @@ Panel {
               onPicked: function(value) { root.set("chargeLimit", value) }
             }
 
+            LevelSlider {
+              visible: parent.status.kind === "threshold" && parent.status.startSupported
+              label: "Resume charging at"
+              value: root.sb.chargeResume
+              minimum: 0
+              maximum: root.sb.chargeLimit - 5
+              step: 5
+              onPicked: function(value) { root.set("chargeResume", value) }
+            }
+
             DetailLabel {
               visible: parent.status.kind === "types"
               text: "This laptop has a conservation mode instead of a number: its firmware holds the battery at a fixed level (60% on most Lenovo models) to make it last longer."

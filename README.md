@@ -88,10 +88,15 @@ can also put such files (or symlinks to them) in that folder yourself; the
 
 Laptops offer one of two kinds, and the popup shows whichever yours has:
 
-- **A percentage** (ThinkPad, ASUS, Dell, Framework, and others): pick 50–100%
-  in steps of 5.
+- **A percentage** (ThinkPad, ASUS, Dell, Framework, and others): pick where to
+  stop charging, from 50–100% in steps of 5. On laptops with a start-threshold
+  control, **Resume charging at** also picks where charging resumes, from 0–95%
+  in steps of 5. Resume always stays below Stop.
 - **Conservation mode** (Lenovo IdeaPad and Legion): on or off. The firmware
   picks the level, 60% on most models.
+
+While plugged in between the stop and resume levels, the laptop runs from its
+power adapter with charging paused. Charging starts again at the resume level.
 
 Changing it needs root once. The first time, the popup shows **Set up**, which
 asks for your password and installs one udev rule,

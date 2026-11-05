@@ -31,7 +31,7 @@ Item {
   property var sounds: []
   property var chargeStatus: Model.parseChargeStatus("")
   property bool chargeSetupRunning: false
-  property string pendingChargeTarget: ""
+  property var pendingChargeArgs: []
   property string lastError: ""
 
   readonly property int level: Model.batteryLevel(UPower.displayDevice)
@@ -39,7 +39,7 @@ Item {
   readonly property bool playing: soundProc.running
   readonly property bool addingSound: addSoundProc.running
   readonly property bool chargeLimitNeedsSetup: chargeStatus.kind !== "none" && !chargeStatus.writable
-    && Model.chargeLimitTarget(chargeStatus, settings) !== ""
+    && (Model.chargeLimitTarget(chargeStatus, settings) !== "" || Model.chargeResumeTarget(chargeStatus, settings) !== "")
 
   property string pendingSound: ""
   property bool stoppingSound: false
@@ -77,7 +77,7 @@ Item {
     root.settings = Model.applyChange(root.settings, key, value)
     if (root.shell && typeof root.shell.updateEntryInline === "function")
       root.shell.updateEntryInline(root.pluginId, Model.mergedEntry(root.storedEntry, root.settings))
-    if (key === "chargeLimitOn" || key === "chargeLimit") root.applyChargeLimit()
+    if (key === "chargeLimitOn" || key === "chargeLimit" || key === "chargeResume") root.applyChargeLimit()
     root.check()
   }
 
@@ -184,12 +184,13 @@ Item {
   function applyChargeLimit() {
     if (!root.chargeStatus.writable) return
     if (chargeSetProc.running) {
-      root.pendingChargeTarget = Model.chargeLimitValue(root.chargeStatus, root.settings)
+      root.pendingChargeArgs = Model.chargeLimitArgs(root.chargeStatus, root.settings)
       return
     }
     var target = Model.chargeLimitTarget(root.chargeStatus, root.settings)
-    if (!target) return
-    chargeSetProc.command = [root.chargeLimitBin, "set", target]
+    var resume = Model.chargeResumeTarget(root.chargeStatus, root.settings)
+    if (!target && !resume) return
+    chargeSetProc.command = [root.chargeLimitBin, "set"].concat(Model.chargeLimitArgs(root.chargeStatus, root.settings))
     chargeSetProc.running = true
   }
 
@@ -262,10 +263,10 @@ Item {
     stderr: StdioCollector { id: chargeErr; waitForEnd: true }
     onExited: function(exitCode) {
       if (exitCode !== 0) root.lastError = String(chargeErr.text || "").trim() || "Could not change the charge limit"
-      var pending = root.pendingChargeTarget
-      root.pendingChargeTarget = ""
-      if (pending) {
-        chargeSetProc.command = [root.chargeLimitBin, "set", pending]
+      var pending = root.pendingChargeArgs
+      root.pendingChargeArgs = []
+      if (pending.length > 0) {
+        chargeSetProc.command = [root.chargeLimitBin, "set"].concat(pending)
         chargeSetProc.running = true
       } else {
         root.refreshCharge()

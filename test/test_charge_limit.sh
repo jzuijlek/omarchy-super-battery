@@ -40,18 +40,32 @@ check "not writable yet: status says so" "0" "$(run "$legion" status | awk -F'\t
 check "not writable yet: set explains the setup" "charge-limit: not writable yet: run the one-time setup" "$(run "$legion" set Standard)"
 chmod -R u+w "$legion"; rm -rf "$legion"
 
-# A ThinkPad-style laptop with a numeric threshold (and charge_types too).
+# A ThinkPad-style laptop with numeric stop and resume thresholds (and
+# charge_types too).
 thinkpad=$(mktemp -d)
 mkdir -p "$thinkpad/BAT0"
 echo Battery >"$thinkpad/BAT0/type"
 echo 100 >"$thinkpad/BAT0/charge_control_end_threshold"
+echo 50 >"$thinkpad/BAT0/charge_control_start_threshold"
 echo "[Standard] Long_Life" >"$thinkpad/BAT0/charge_types"
 
-check "threshold laptop: the number wins over charge_types" $'kind\tthreshold\nvalue\t100\nwritable\t1\nbattery\tBAT0' "$(run "$thinkpad" status)"
+check "threshold laptop: the number wins over charge_types" $'kind\tthreshold\nvalue\t100\nstart_supported\t1\nstart_value\t50\nwritable\t1\nbattery\tBAT0' "$(run "$thinkpad" status)"
 run "$thinkpad" set 80 >/dev/null
 check "threshold laptop: set 80" "80" "$(<"$thinkpad/BAT0/charge_control_end_threshold")"
+check "threshold laptop: omitting resume leaves it alone" "50" "$(<"$thinkpad/BAT0/charge_control_start_threshold")"
+run "$thinkpad" set 80 60 >/dev/null
+check "threshold laptop: set resume 60" "60" "$(<"$thinkpad/BAT0/charge_control_start_threshold")"
+run "$thinkpad" set 90 85 >/dev/null
+check "threshold laptop: raise both stop values" "90" "$(<"$thinkpad/BAT0/charge_control_end_threshold")"
+check "threshold laptop: raise both resume values" "85" "$(<"$thinkpad/BAT0/charge_control_start_threshold")"
+check "threshold laptop: resume at the limit is refused" "charge-limit: resume must be 0 or more and below the limit, got '80'" "$(run "$thinkpad" set 80 80)"
+check "threshold laptop: negative resume is refused" "charge-limit: resume must be 0 or more and below the limit, got '-1'" "$(run "$thinkpad" set 80 -1)"
 check "threshold laptop: out of range is refused" "charge-limit: limit must be 50-100, got '20'" "$(run "$thinkpad" set 20)"
 check "threshold laptop: junk is refused" "charge-limit: limit must be 50-100, got '8;0'" "$(run "$thinkpad" set '8;0')"
+chmod a-w "$thinkpad/BAT0/charge_control_start_threshold"
+check "threshold laptop: an unwritable resume control needs setup" "0" "$(run "$thinkpad" status | awk -F'\t' '$1=="writable"{print $2}')"
+check "threshold laptop: resume explains the setup" "charge-limit: not writable yet: run the one-time setup" "$(run "$thinkpad" set 80 70)"
+chmod u+w "$thinkpad/BAT0/charge_control_start_threshold"
 rm -rf "$thinkpad"
 
 # Dell numeric thresholds only take effect in Custom mode. Remember Adaptive

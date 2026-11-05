@@ -74,6 +74,8 @@ ShellRoot {
       service.setSetting("chargeLimitOn", true)
       service.setSetting("chargeLimit", 85)
       service.setSetting("chargeLimit", 90)
+      service.setSetting("chargeResume", 55)
+      service.setSetting("chargeResume", 60)
       service.testSound("warning")
       done.start()
     }
@@ -86,6 +88,9 @@ ShellRoot {
       harness.expect("latest charge limit wins while a write is running",
         service.settings.chargeLimit === 90 && service.chargeStatus.value === "90",
         "saved " + service.settings.chargeLimit + ", actual " + service.chargeStatus.value)
+      harness.expect("latest resume threshold wins while a write is running",
+        service.settings.chargeResume === 60 && service.chargeStatus.startValue === "60",
+        "saved " + service.settings.chargeResume + ", actual " + service.chargeStatus.startValue)
       harness.expect("pw-play ran", harness.sawPlaying)
       harness.expect("sound finished without error", !service.playing && service.lastError === "", service.lastError)
       harness.sawPlaying = false

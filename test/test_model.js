@@ -19,11 +19,12 @@ run("defaults fill an empty entry", () => {
 })
 
 run("levels are clamped into range", () => {
-  const s = cfg({ warningLevel: 99, criticalLevel: 1, saverLevel: 0, chargeLimit: 20, volume: 300 })
+  const s = cfg({ warningLevel: 99, criticalLevel: 1, saverLevel: 0, chargeLimit: 20, chargeResume: 99, volume: 300 })
   assert.strictEqual(s.warningLevel, M.LEVEL_MAX)
   assert.strictEqual(s.criticalLevel, M.LEVEL_MIN)
   assert.strictEqual(s.saverLevel, M.LEVEL_MIN)
   assert.strictEqual(s.chargeLimit, 50)
+  assert.strictEqual(s.chargeResume, 45)
   assert.strictEqual(s.volume, 100)
 })
 
@@ -31,6 +32,12 @@ run("a hand-edited critical level above warning is pulled under it", () => {
   const s = cfg({ warningLevel: 15, criticalLevel: 30 })
   assert.strictEqual(s.warningLevel, 15)
   assert.strictEqual(s.criticalLevel, 14)
+})
+
+run("a hand-edited resume level above the charge limit is pulled under it", () => {
+  const s = cfg({ chargeLimit: 80, chargeResume: 90 })
+  assert.strictEqual(s.chargeLimit, 80)
+  assert.strictEqual(s.chargeResume, 75)
 })
 
 run("dragging critical past warning pushes warning up", () => {
@@ -43,6 +50,14 @@ run("dragging warning under critical pushes critical down", () => {
   const s = M.applyChange(cfg({ warningLevel: 20, criticalLevel: 10 }), "warningLevel", 8)
   assert.strictEqual(s.warningLevel, 8)
   assert.strictEqual(s.criticalLevel, 7)
+})
+
+run("charge stop and resume sliders cannot cross", () => {
+  const stopped = M.applyChange(cfg({ chargeLimit: 80, chargeResume: 70 }), "chargeLimit", 60)
+  assert.strictEqual(stopped.chargeLimit, 60)
+  assert.strictEqual(stopped.chargeResume, 55)
+  const resumed = M.applyChange(cfg({ chargeLimit: 80, chargeResume: 50 }), "chargeResume", 90)
+  assert.strictEqual(resumed.chargeResume, 75)
 })
 
 run("a repeat interval the popup cannot offer falls back to once", () => {
@@ -185,9 +200,12 @@ run("power saver and the warning fire together when their levels match", () => {
 
 run("charge status parses all three kinds", () => {
   assert.deepStrictEqual(M.parseChargeStatus("kind\tthreshold\nvalue\t80\nwritable\t1\n"),
-    { kind: "threshold", value: "80", writable: true, customMode: false, chargeType: "", restoreType: "", error: "" })
+    { kind: "threshold", value: "80", writable: true, startSupported: false, startValue: "", customMode: false, chargeType: "", restoreType: "", error: "" })
   assert.deepStrictEqual(M.parseChargeStatus("kind\ttypes\nvalue\tStandard\nwritable\t0\n"),
-    { kind: "types", value: "Standard", writable: false, customMode: false, chargeType: "", restoreType: "", error: "" })
+    { kind: "types", value: "Standard", writable: false, startSupported: false, startValue: "", customMode: false, chargeType: "", restoreType: "", error: "" })
+  const withResume = M.parseChargeStatus("kind\tthreshold\nvalue\t80\nstart_supported\t1\nstart_value\t60\nwritable\t1\n")
+  assert.strictEqual(withResume.startSupported, true)
+  assert.strictEqual(withResume.startValue, "60")
   assert.strictEqual(M.parseChargeStatus("").kind, "none")
   assert.strictEqual(M.parseChargeStatus("kind\tbogus\n").kind, "none")
 })
@@ -197,6 +215,18 @@ run("charge limit target: threshold laptops get the number, or 100 when off", ()
   assert.strictEqual(M.chargeLimitTarget(status, cfg({ chargeLimitOn: true, chargeLimit: 80 })), "80")
   assert.strictEqual(M.chargeLimitTarget({ kind: "threshold", value: "80" }, cfg({ chargeLimitOn: true })), "")
   assert.strictEqual(M.chargeLimitTarget({ kind: "threshold", value: "80" }, cfg()), "100")
+})
+
+run("resume threshold changes produce stop and resume arguments", () => {
+  const status = { kind: "threshold", value: "80", startSupported: true, startValue: "50" }
+  const unchanged = cfg({ chargeLimitOn: true, chargeLimit: 80, chargeResume: 50 })
+  const changed = cfg({ chargeLimitOn: true, chargeLimit: 80, chargeResume: 60 })
+  assert.strictEqual(M.chargeResumeTarget(status, unchanged), "")
+  assert.strictEqual(M.chargeResumeTarget(status, changed), "60")
+  assert.deepStrictEqual(M.chargeLimitArgs(status, changed), ["80", "60"])
+  assert.deepStrictEqual(M.chargeLimitArgs(status, cfg()), ["100"])
+  assert.strictEqual(M.chargeResumeTarget({ kind: "threshold", value: "80" }, changed), "")
+  assert.strictEqual(M.chargeResumeTarget(status, cfg()), "")
 })
 
 run("charge limit target: Dell thresholds also manage Custom mode", () => {
@@ -241,5 +271,6 @@ run("summaries read as one line", () => {
   assert.strictEqual(M.alertSummary(true, 10, M.DEFAULTS.criticalSound, 2), "At 10% · Alarm clock · every 2 min")
   assert.strictEqual(M.alertSummary(false, 10, "", 0), "Off")
   assert.strictEqual(M.chargeSummary({ kind: "threshold" }, cfg({ chargeLimitOn: true, chargeLimit: 85 })), "Stops charging at 85%")
+  assert.strictEqual(M.chargeSummary({ kind: "threshold", startSupported: true }, cfg({ chargeLimitOn: true, chargeLimit: 85, chargeResume: 55 })), "Stops at 85% · resumes at 55%")
   assert.strictEqual(M.chargeSummary({ kind: "types" }, cfg({ chargeLimitOn: true })), "Conservation mode on")
 })

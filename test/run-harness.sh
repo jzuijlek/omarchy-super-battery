@@ -26,18 +26,21 @@ export SUPER_BATTERY_FILE_SELECT="$work/fake-file-select"
 cat >"$work/slow-charge-limit" <<'SH'
 #!/bin/bash
 state="$(dirname "$0")/charge-state"
+resume_state="$(dirname "$0")/charge-resume-state"
 case "$1" in
   status)
-    printf 'kind\tthreshold\nvalue\t%s\nwritable\t1\nbattery\tFAKE\n' "$(<"$state")"
+    printf 'kind\tthreshold\nvalue\t%s\nstart_supported\t1\nstart_value\t%s\nwritable\t1\nbattery\tFAKE\n' "$(<"$state")" "$(<"$resume_state")"
     ;;
   set)
-    echo "$2" >>"$(dirname "$0")/charge-writes"
+    echo "$2 $3" >>"$(dirname "$0")/charge-writes"
     sleep 0.25
     echo "$2" >"$state"
+    echo "$3" >"$resume_state"
     ;;
 esac
 SH
 chmod +x "$work/slow-charge-limit"
 echo 100 >"$work/charge-state"
+echo 50 >"$work/charge-resume-state"
 
 timeout 25 quickshell -p "$work" 2>&1 | grep -E 'PASS|FAIL|ERROR|Warning:'

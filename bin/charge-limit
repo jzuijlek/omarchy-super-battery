@@ -1,9 +1,9 @@
 #!/bin/bash
 # Reads or sets the battery charge limit through the kernel's sysfs files.
 #
-#   charge-limit status        prints kind / value / writable / battery lines
-#   charge-limit set <value>   a percentage on threshold laptops,
-#                              Long_Life or Standard on conservation-mode ones
+#   charge-limit status               prints kind / value / writable / battery lines
+#   charge-limit set <value> [resume] percentages on threshold laptops,
+#                                     Long_Life or Standard on conservation-mode ones
 #
 # Two kernel interfaces exist. charge_control_end_threshold takes any
 # percentage (ThinkPad, ASUS, Dell, Framework...). charge_types offers named
@@ -71,7 +71,14 @@ status() {
 
   if [[ -e $battery/charge_control_end_threshold ]]; then
     printf 'kind\tthreshold\nvalue\t%s\n' "$(<"$battery/charge_control_end_threshold")"
-    [[ -w $battery/charge_control_end_threshold ]] && printf 'writable\t1\n' || printf 'writable\t0\n'
+    if [[ -e $battery/charge_control_start_threshold ]]; then
+      printf 'start_supported\t1\nstart_value\t%s\n' "$(<"$battery/charge_control_start_threshold")"
+    fi
+    if [[ -w $battery/charge_control_end_threshold ]] && { [[ ! -e $battery/charge_control_start_threshold ]] || [[ -w $battery/charge_control_start_threshold ]]; }; then
+      printf 'writable\t1\n'
+    else
+      printf 'writable\t0\n'
+    fi
     if charge_types_offer_custom "$battery"; then
       charge_type=$(current_charge_type "$battery")
       printf 'custom_mode\t1\ncharge_type\t%s\n' "$charge_type"
@@ -90,12 +97,17 @@ status() {
 }
 
 set_limit() {
-  local value="$1" battery charge_type previous=""
+  local value="$1" resume="${2:-}" battery charge_type previous=""
   battery=$(find_battery) || fail "this laptop has no charge limit control"
 
   if [[ -e $battery/charge_control_end_threshold ]]; then
     [[ $value =~ ^[0-9]+$ ]] && (( value >= 50 && value <= 100 )) || fail "limit must be 50-100, got '$value'"
     [[ -w $battery/charge_control_end_threshold ]] || fail "not writable yet: run the one-time setup"
+    if [[ -n $resume ]]; then
+      [[ -e $battery/charge_control_start_threshold ]] || fail "this laptop has no resume charge control"
+      [[ $resume =~ ^[0-9]+$ ]] && (( resume >= 0 && resume < value )) || fail "resume must be 0 or more and below the limit, got '$resume'"
+      [[ -w $battery/charge_control_start_threshold ]] || fail "not writable yet: run the one-time setup"
+    fi
     if charge_types_offer_custom "$battery"; then
       [[ -w $battery/charge_types ]] || fail "not writable yet: run the one-time setup"
       charge_type=$(current_charge_type "$battery")
@@ -106,7 +118,14 @@ set_limit() {
         printf '%s\n' "$previous" >"$state_file"
       fi
     fi
-    printf '%s\n' "$value" >"$battery/charge_control_end_threshold"
+    # Keep start below end after each write: drivers may reject either crossing.
+    if [[ -n $resume ]] && (( resume >= $(<"$battery/charge_control_end_threshold") )); then
+      printf '%s\n' "$value" >"$battery/charge_control_end_threshold"
+      printf '%s\n' "$resume" >"$battery/charge_control_start_threshold"
+    else
+      [[ -z $resume ]] || printf '%s\n' "$resume" >"$battery/charge_control_start_threshold"
+      printf '%s\n' "$value" >"$battery/charge_control_end_threshold"
+    fi
     if charge_types_offer_custom "$battery"; then
       if (( value < 100 )); then
         [[ $charge_type == Custom ]] || printf 'Custom\n' >"$battery/charge_types"
@@ -116,6 +135,7 @@ set_limit() {
       fi
     fi
   else
+    [[ -z $resume ]] || fail "conservation mode has no resume charge control"
     [[ $value == Long_Life || $value == Standard ]] || fail "mode must be Long_Life or Standard, got '$value'"
     [[ -w $battery/charge_types ]] || fail "not writable yet: run the one-time setup"
     printf '%s\n' "$value" >"$battery/charge_types"
@@ -124,6 +144,6 @@ set_limit() {
 
 case "${1:-}" in
   status) status ;;
-  set) (( $# == 2 )) || fail "usage: charge-limit set <value>"; set_limit "$2" ;;
-  *) fail "usage: charge-limit status | set <value>" ;;
+  set) (( $# == 2 || $# == 3 )) || fail "usage: charge-limit set <value> [resume]"; set_limit "$2" "${3:-}" ;;
+  *) fail "usage: charge-limit status | set <value> [resume]" ;;
 esac

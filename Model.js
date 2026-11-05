@@ -30,7 +30,8 @@ var DEFAULTS = {
   saverOn: false,
   saverLevel: 20,
   chargeLimitOn: false,
-  chargeLimit: 80
+  chargeLimit: 80,
+  chargeResume: 50
 }
 
 // Only the freedesktop sounds that work as an alarm. Names are the real
@@ -70,7 +71,10 @@ function normalizeSettings(entry) {
   var repeat = Math.round(Number(s.repeatMinutes))
   var warningLevel = clampInt(s.warningLevel, LEVEL_MIN + 1, LEVEL_MAX, DEFAULTS.warningLevel)
   var criticalLevel = clampInt(s.criticalLevel, LEVEL_MIN, LEVEL_MAX - 1, DEFAULTS.criticalLevel)
+  var chargeLimit = clampInt(s.chargeLimit, CHARGE_LIMIT_MIN, CHARGE_LIMIT_MAX, DEFAULTS.chargeLimit)
+  var chargeResume = clampInt(s.chargeResume, 0, CHARGE_LIMIT_MAX - 5, DEFAULTS.chargeResume)
   if (criticalLevel >= warningLevel) criticalLevel = warningLevel - 1
+  if (chargeResume >= chargeLimit) chargeResume = chargeLimit - 5
   return {
     showPercentage: bool(s.showPercentage, DEFAULTS.showPercentage),
     warningOn: bool(s.warningOn, DEFAULTS.warningOn),
@@ -85,7 +89,8 @@ function normalizeSettings(entry) {
     saverOn: bool(s.saverOn, DEFAULTS.saverOn),
     saverLevel: clampInt(s.saverLevel, LEVEL_MIN, LEVEL_MAX, DEFAULTS.saverLevel),
     chargeLimitOn: bool(s.chargeLimitOn, DEFAULTS.chargeLimitOn),
-    chargeLimit: clampInt(s.chargeLimit, CHARGE_LIMIT_MIN, CHARGE_LIMIT_MAX, DEFAULTS.chargeLimit)
+    chargeLimit: chargeLimit,
+    chargeResume: chargeResume
   }
 }
 
@@ -101,6 +106,11 @@ function applyChange(settings, key, value) {
   } else if (key === "criticalLevel") {
     next.criticalLevel = clampInt(value, LEVEL_MIN, LEVEL_MAX - 1, settings.criticalLevel)
     if (next.warningLevel <= next.criticalLevel) next.warningLevel = next.criticalLevel + 1
+  } else if (key === "chargeLimit") {
+    next.chargeLimit = clampInt(value, CHARGE_LIMIT_MIN, CHARGE_LIMIT_MAX, settings.chargeLimit)
+    if (next.chargeResume >= next.chargeLimit) next.chargeResume = next.chargeLimit - 5
+  } else if (key === "chargeResume") {
+    next.chargeResume = clampInt(value, 0, settings.chargeLimit - 5, settings.chargeResume)
   }
   return normalizeSettings(next)
 }
@@ -214,7 +224,7 @@ function step(state, input) {
 //   value     the current end threshold, or the current charge type
 //   writable  1 when this user can write it without a password
 function parseChargeStatus(raw) {
-  var out = { kind: "none", value: "", writable: false, customMode: false, chargeType: "", restoreType: "", error: "" }
+  var out = { kind: "none", value: "", writable: false, startSupported: false, startValue: "", customMode: false, chargeType: "", restoreType: "", error: "" }
   var lines = String(raw || "").split("\n")
   for (var i = 0; i < lines.length; i++) {
     var tab = lines[i].indexOf("\t")
@@ -224,6 +234,8 @@ function parseChargeStatus(raw) {
     if (key === "kind") out.kind = value === "threshold" || value === "types" ? value : "none"
     else if (key === "value") out.value = value
     else if (key === "writable") out.writable = value === "1"
+    else if (key === "start_supported") out.startSupported = value === "1"
+    else if (key === "start_value") out.startValue = value
     else if (key === "custom_mode") out.customMode = value === "1"
     else if (key === "charge_type") out.chargeType = value
     else if (key === "restore_type") out.restoreType = value
@@ -250,6 +262,21 @@ function chargeLimitTarget(status, settings) {
     if (!settings.chargeLimitOn && status.chargeType === "Custom" && status.restoreType) return want
   }
   return ""
+}
+
+function chargeResumeTarget(status, settings) {
+  if (!settings.chargeLimitOn || status.kind !== "threshold" || !status.startSupported) return ""
+  var want = String(settings.chargeResume)
+  return status.startValue !== want ? want : ""
+}
+
+function chargeLimitArgs(status, settings) {
+  var value = chargeLimitValue(status, settings)
+  if (!value) return []
+  var args = [value]
+  if (settings.chargeLimitOn && status.kind === "threshold" && status.startSupported)
+    args.push(String(settings.chargeResume))
+  return args
 }
 
 function chargeLimitActive(status) {
@@ -343,7 +370,9 @@ function chargeSummary(status, settings) {
   if (status.kind === "none") return "Not supported on this laptop"
   if (status.kind === "types")
     return settings.chargeLimitOn ? "Conservation mode on" : "Off: charges to 100%"
-  return settings.chargeLimitOn ? "Stops charging at " + settings.chargeLimit + "%" : "Off: charges to 100%"
+  if (!settings.chargeLimitOn) return "Off: charges to 100%"
+  if (status.startSupported) return "Stops at " + settings.chargeLimit + "% · resumes at " + settings.chargeResume + "%"
+  return "Stops charging at " + settings.chargeLimit + "%"
 }
 
 if (typeof module !== "undefined") {
@@ -362,6 +391,8 @@ if (typeof module !== "undefined") {
     step: step,
     parseChargeStatus: parseChargeStatus,
     chargeLimitTarget: chargeLimitTarget,
+    chargeResumeTarget: chargeResumeTarget,
+    chargeLimitArgs: chargeLimitArgs,
     chargeLimitActive: chargeLimitActive,
     soundOptions: soundOptions,
     soundLabel: soundLabel,
